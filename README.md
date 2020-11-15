@@ -3,4 +3,4 @@
 - TODOs:
   - Prevent double voting
   - Prevent voting after a deadline
-  - Tally is public only after a deadline
+  - Make the tally public only after a deadline
