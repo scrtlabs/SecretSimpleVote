@@ -1,11 +1,14 @@
-use bincode2;
-use cosmwasm_std::{
-    Api, Binary, Env, Extern, HandleResponse, HandleResult, InitResponse, InitResult, Querier,
-    QueryResult, Storage,
-};
+use std::fmt::Debug;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json_wasm;
+
+use cosmwasm_std::{
+    to_binary, Api, CanonicalAddr, Env, Extern, HandleResponse, HandleResult, HumanAddr,
+    InitResponse, InitResult, Querier, QueryResult, StdError, StdResult, Storage,
+};
+use cosmwasm_storage::PrefixedStorage;
+use secret_toolkit::storage::AppendStoreMut;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
@@ -14,24 +17,32 @@ pub struct InitMsg {
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> InitResult {
-    deps.storage
-        .set(b"poll", &bincode2::serialize(&msg.poll).unwrap());
+    deps.storage.set(b"poll", &serialize(&msg.poll)?);
+    deps.storage.set(b"running", &serialize(&true)?);
+
+    // Initialize the store of voters
+    let mut storage = PrefixedStorage::new(b"voters", &mut deps.storage);
+    AppendStoreMut::<CanonicalAddr, _>::attach_or_create(&mut storage)?;
 
     let new_tally = Tally { yes: 0, no: 0 };
-    deps.storage
-        .set(b"tally", &bincode2::serialize(&new_tally).unwrap());
+    deps.storage.set(b"tally", &serialize(&new_tally)?);
+
+    let admin_address = env.message.sender;
+    deps.storage.set(b"admin", &serialize(&admin_address)?);
+
     Ok(InitResponse::default())
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
-pub struct HandleMsg {
-    yes: bool,
+pub enum HandleMsg {
+    Vote { yes: bool },
+    Close {},
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Tally {
     yes: u64,
     no: u64,
@@ -39,38 +50,81 @@ pub struct Tally {
 
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
-    let mut tally: Tally = bincode2::deserialize(&deps.storage.get(b"tally").unwrap()).unwrap();
-
-    if msg.yes {
-        tally.yes += 1;
-    } else {
-        tally.no += 1;
+    let poll_running: bool = deserialize(&deps.storage.get(b"running").unwrap())?;
+    if !poll_running {
+        return Err(StdError::generic_err("the poll is closed"));
     }
 
-    deps.storage
-        .set(b"tally", &bincode2::serialize(&tally).unwrap());
+    match msg {
+        HandleMsg::Vote { yes } => {
+            let sender_address = deps.api.canonical_address(&env.message.sender)?;
+
+            let mut storage = PrefixedStorage::new(b"voters", &mut deps.storage);
+            let mut storage = AppendStoreMut::<CanonicalAddr, _>::attach(&mut storage).unwrap()?;
+            if storage
+                .iter()
+                .any(|address| address.unwrap() == sender_address)
+            {
+                return Err(StdError::generic_err("This account has already voted!"));
+            }
+            storage.push(&sender_address)?;
+
+            let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+            if yes {
+                tally.yes += 1;
+            } else {
+                tally.no += 1;
+            }
+            deps.storage.set(b"tally", &serialize(&tally)?);
+        }
+        HandleMsg::Close {} => {
+            let admin: HumanAddr = deserialize(&deps.storage.get(b"admin").unwrap())?;
+            if env.message.sender != admin {
+                return Err(StdError::generic_err("only the admin can close the vote"));
+            }
+            deps.storage.set(b"running", &serialize(&false)?)
+        }
+    }
+
     Ok(HandleResponse::default())
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    /// Get poll name
     GetPoll {},
+    /// Get the number of votes for/against
     GetTally {},
 }
 
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
         QueryMsg::GetPoll {} => {
-            let poll: String = bincode2::deserialize(&deps.storage.get(b"poll").unwrap()).unwrap();
-            Ok(Binary(serde_json_wasm::to_vec(&poll).unwrap()))
+            let poll: String = deserialize(&deps.storage.get(b"poll").unwrap())?;
+            Ok(to_binary(&poll)?)
         }
         QueryMsg::GetTally {} => {
-            let tally: Tally = bincode2::deserialize(&deps.storage.get(b"tally").unwrap()).unwrap();
-            Ok(Binary(serde_json_wasm::to_vec(&tally).unwrap()))
+            let poll_running: bool = deserialize(&deps.storage.get(b"running").unwrap())?;
+            let tally: Tally = if poll_running {
+                Tally { yes: 0, no: 0 }
+            } else {
+                deserialize(&deps.storage.get(b"tally").unwrap())?
+            };
+            Ok(to_binary(&tally)?)
         }
     }
+}
+
+fn serialize<T: Serialize + Debug>(value: &T) -> StdResult<Vec<u8>> {
+    bincode2::serialize(value)
+        .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", value)))
+}
+
+fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<T> {
+    bincode2::deserialize(data)
+        .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", data)))
 }
