@@ -4,11 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{
-    to_binary, Api, CanonicalAddr, Env, Extern, HandleResponse, HandleResult, HumanAddr,
-    InitResponse, InitResult, Querier, QueryResult, StdError, StdResult, Storage,
+    to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
+    Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
 };
 use cosmwasm_storage::PrefixedStorage;
-use secret_toolkit::storage::AppendStoreMut;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
@@ -22,10 +21,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> InitResult {
     deps.storage.set(b"poll", &serialize(&msg.poll)?);
     deps.storage.set(b"running", &serialize(&true)?);
-
-    // Initialize the store of voters
-    let mut storage = PrefixedStorage::new(b"voters", &mut deps.storage);
-    AppendStoreMut::<CanonicalAddr, _>::attach_or_create(&mut storage)?;
 
     let new_tally = Tally { yes: 0, no: 0 };
     deps.storage.set(b"tally", &serialize(&new_tally)?);
@@ -60,17 +55,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 
     match msg {
         HandleMsg::Vote { yes } => {
-            let sender_address = deps.api.canonical_address(&env.message.sender)?;
+            let sender_address = &env.message.sender;
 
             let mut storage = PrefixedStorage::new(b"voters", &mut deps.storage);
-            let mut storage = AppendStoreMut::<CanonicalAddr, _>::attach(&mut storage).unwrap()?;
-            if storage
-                .iter()
-                .any(|address| address.unwrap() == sender_address)
-            {
+            if let Some(_value) = storage.get(sender_address.0.as_bytes()) {
                 return Err(StdError::generic_err("This account has already voted!"));
             }
-            storage.push(&sender_address)?;
+            storage.set(sender_address.0.as_bytes(), b"x");
 
             let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
             if yes {
