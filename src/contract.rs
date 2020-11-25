@@ -1,12 +1,11 @@
 use std::fmt::Debug;
 
 use cosmwasm_std::{
-    Api, Binary, Env, Extern, HandleResponse, HandleResult, InitResponse, InitResult, Querier,
+    to_binary, Api, Env, Extern, HandleResponse, HandleResult, InitResponse, InitResult, Querier,
     QueryResult, StdError, StdResult, Storage,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json_wasm;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
@@ -64,11 +63,11 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
     match msg {
         QueryMsg::GetPoll {} => {
             let poll: String = deserialize(&deps.storage.get(b"poll").unwrap())?;
-            Ok(Binary(serde_json_wasm::to_vec(&poll).unwrap()))
+            Ok(to_binary(&poll)?)
         }
         QueryMsg::GetTally {} => {
             let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-            Ok(Binary(serde_json_wasm::to_vec(&tally).unwrap()))
+            Ok(to_binary(&tally)?)
         }
     }
 }

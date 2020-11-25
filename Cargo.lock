@@ -76,15 +76,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmwasm-storage"
-version = "0.10.0"
-source = "git+https://github.com/enigmampc/SecretNetwork?tag=v1.0.0#490fba9243e6cb291462e9d3c1bcbd1975c0df1e"
-dependencies = [
- "cosmwasm-std",
- "serde",
-]
-
-[[package]]
 name = "doc-comment"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -183,10 +174,8 @@ version = "0.0.1"
 dependencies = [
  "bincode2",
  "cosmwasm-std",
- "cosmwasm-storage",
  "schemars",
  "serde",
- "serde-json-wasm",
 ]
 
 [[package]]
