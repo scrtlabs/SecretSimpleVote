@@ -10,8 +10,16 @@ build:
 alternatively-build-with-docker:
 	docker run --rm -it -v $(shell pwd):/contract enigmampc/secret-contract-optimizer
 
+# alias secretcli='docker exec -it secretdev /usr/bin/secretcli'
 start-local-chain: # CTRL+C to stop
-	docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1317:1317 -v $(shell pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:v1.0.2
+	docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $(shell pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:v1.0.2
+
+start-local-lcd:
+	docker exec -it secretdev setsid secretcli rest-server --trust-node=true --chain-id enigma-pub-testnet-3 --laddr tcp://0.0.0.0:1337
+	npx local-cors-proxy --proxyUrl http://localhost:1337
+
+store-contract:
+	docker exec -it secretdev secretcli tx compute store /root/code/contract.wasm.gz --from a --gas 10000000 -b block -y
 
 clean:
 	cargo clean
