@@ -21,7 +21,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     msg: InitMsg,
 ) -> InitResult {
     deps.storage.set(b"poll", &serialize(&msg.poll)?);
-    let deadline = msg.deadline.unwrap_or(0);
+    let deadline = msg.deadline.unwrap_or(u64::MAX);
     deps.storage.set(b"deadline", &serialize(&deadline)?);
     deps.storage.set(b"running", &serialize(&true)?);
 

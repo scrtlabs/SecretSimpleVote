@@ -1,8 +1,9 @@
 import "./App.css";
 import React from "react";
 import { SigningCosmWasmClient } from "secretjs";
+import { v4 as uuidv4 } from "uuid";
 
-const CODE_ID = 1;
+const CODE_ID = 2;
 const CHIAN_ID = "enigma-pub-testnet-3";
 
 class App extends React.Component {
@@ -16,6 +17,7 @@ class App extends React.Component {
     };
 
     this.createNewPoll = this.createNewPoll.bind(this);
+    this.vote = this.vote.bind(this);
   }
 
   async componentWillMount() {
@@ -116,12 +118,29 @@ class App extends React.Component {
   async createNewPoll() {
     const newPollText = this.state.newPollText;
     this.setState({ newPollText: "" });
+    try {
+      const response = await this.secretjs.instantiate(
+        CODE_ID,
+        { poll: newPollText },
+        uuidv4()
+      );
+      alert(JSON.stringify(response));
+    } catch (error) {
+      alert(error.message);
+    }
+  }
 
-    await this.secretjs.instantiate(
-      CODE_ID,
-      { poll: newPollText },
-      newPollText
-    );
+  async vote(pollAddress, yes) {
+    const newPollText = this.state.newPollText;
+    this.setState({ newPollText: "" });
+    try {
+      const response = await this.secretjs.execute(pollAddress, {
+        Vote: { yes },
+      });
+      alert(JSON.stringify(response));
+    } catch (error) {
+      alert(error.message);
+    }
   }
 
   render() {
@@ -134,7 +153,7 @@ class App extends React.Component {
     }
 
     return (
-      <>
+      <center>
         <h1>Create Poll</h1>
         <form>
           <input
@@ -149,10 +168,36 @@ class App extends React.Component {
           </button>
         </form>
         <h1>Polls</h1>
-        {this.state.polls.map((p) => (
-          <h4>{JSON.stringify(p)}</h4>
-        ))}
-      </>
+        <table>
+          <thead>
+            <th>
+              <td>Poll</td>
+              <td>Vote</td>
+            </th>
+          </thead>
+          <tbody>
+            {this.state.polls.map((poll, idx) => (
+              <tr key={idx}>
+                <td>{poll.poll}</td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => this.vote(poll.address, true)}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => this.vote(poll.address, false)}
+                  >
+                    No
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </center>
     );
   }
 }
