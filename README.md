@@ -1,7 +1,2 @@
 - This is a very simple voting contract.
 - Because txs are private no one knows what people are voting.
-- TODOs:
-  - Prevent double voting
-  - Prevent voting after a deadline
-  - Make the tally public only after a deadline
-    - Or maybe a simpler solution: return the tally only every 10th vote, that way we obfuscate the last vote (after a vote, `if (tally.yes+tally.no) % 10 == 0` do `set(public_yes, tally.yes)` and `set(public_no, tally.no)` and on `get_tally` return `public_yes` and `public_no`).

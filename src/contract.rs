@@ -1,32 +1,43 @@
 use std::fmt::Debug;
 
-use cosmwasm_std::{
-    to_binary, Api, Env, Extern, HandleResponse, HandleResult, InitResponse, InitResult, Querier,
-    QueryResult, StdError, StdResult, Storage,
-};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+use cosmwasm_std::{
+    to_binary, Api, Env, Extern, HandleResponse, HandleResult, HumanAddr, InitResponse, InitResult,
+    Querier, QueryResult, ReadonlyStorage, StdError, StdResult, Storage,
+};
+use cosmwasm_storage::PrefixedStorage;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InitMsg {
     poll: String,
+    deadline: Option<u64>,
 }
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: InitMsg,
 ) -> InitResult {
     deps.storage.set(b"poll", &serialize(&msg.poll)?);
+    let deadline = msg.deadline.unwrap_or(u64::MAX);
+    deps.storage.set(b"deadline", &serialize(&deadline)?);
+    deps.storage.set(b"running", &serialize(&true)?);
 
     let new_tally = Tally { yes: 0, no: 0 };
     deps.storage.set(b"tally", &serialize(&new_tally)?);
+
+    let admin_address = env.message.sender;
+    deps.storage.set(b"admin", &serialize(&admin_address)?);
+
     Ok(InitResponse::default())
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
-pub struct HandleMsg {
-    yes: bool,
+pub enum HandleMsg {
+    Vote { yes: bool },
+    Close {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -37,25 +48,51 @@ pub struct Tally {
 
 pub fn handle<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
-    _env: Env,
+    env: Env,
     msg: HandleMsg,
 ) -> HandleResult {
-    let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
-
-    if msg.yes {
-        tally.yes += 1;
-    } else {
-        tally.no += 1;
+    let deadline: u64 = deserialize(&deps.storage.get(b"deadline").unwrap())?;
+    let poll_running: bool = deserialize(&deps.storage.get(b"running").unwrap())?;
+    if env.block.height >= deadline || !poll_running {
+        return Err(StdError::generic_err("the poll is closed"));
     }
 
-    deps.storage.set(b"tally", &serialize(&tally)?);
+    match msg {
+        HandleMsg::Vote { yes } => {
+            let sender_address = &env.message.sender;
+
+            let mut storage = PrefixedStorage::new(b"voters", &mut deps.storage);
+            if let Some(_value) = storage.get(sender_address.0.as_bytes()) {
+                return Err(StdError::generic_err("This account has already voted!"));
+            }
+            storage.set(sender_address.0.as_bytes(), b"x");
+
+            let mut tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+            if yes {
+                tally.yes += 1;
+            } else {
+                tally.no += 1;
+            }
+            deps.storage.set(b"tally", &serialize(&tally)?);
+        }
+        HandleMsg::Close {} => {
+            let admin: HumanAddr = deserialize(&deps.storage.get(b"admin").unwrap())?;
+            if env.message.sender != admin {
+                return Err(StdError::generic_err("only the admin can close the vote"));
+            }
+            deps.storage.set(b"running", &serialize(&false)?)
+        }
+    }
+
     Ok(HandleResponse::default())
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
+    /// Get poll name
     GetPoll {},
+    /// Get the number of votes for/against
     GetTally {},
 }
 
@@ -66,7 +103,14 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
             Ok(to_binary(&poll)?)
         }
         QueryMsg::GetTally {} => {
-            let tally: Tally = deserialize(&deps.storage.get(b"tally").unwrap())?;
+            let poll_running: bool = deserialize(&deps.storage.get(b"running").unwrap())?;
+            let tally: Tally = if poll_running {
+                // Even if the deadline has passed, the poll will not report
+                // the results until the admin has closed it.
+                Tally { yes: 0, no: 0 }
+            } else {
+                deserialize(&deps.storage.get(b"tally").unwrap())?
+            };
             Ok(to_binary(&tally)?)
         }
     }
