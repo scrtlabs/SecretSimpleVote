@@ -3,7 +3,7 @@ import React from "react";
 import { SigningCosmWasmClient } from "secretjs";
 import { v4 as uuidv4 } from "uuid";
 
-const CODE_ID = 2;
+const CODE_ID = 1;
 const CHIAN_ID = "enigma-pub-testnet-3";
 
 class App extends React.Component {
@@ -50,7 +50,7 @@ class App extends React.Component {
       chainId: CHIAN_ID,
       chainName: "Local Secret Chain",
       rpc: "http://localhost:26657",
-      rest: "http://localhost:8010/proxy",
+      rest: "http://localhost:1337",
       bip44: {
         coinType: 529,
       },
@@ -96,7 +96,7 @@ class App extends React.Component {
     this.accounts = await this.keplrOfflineSigner.getAccounts();
 
     this.secretjs = new SigningCosmWasmClient(
-      "http://localhost:8010/proxy",
+      "http://localhost:1337",
       this.accounts[0].address,
       this.keplrOfflineSigner,
       window.getEnigmaUtils(CHIAN_ID),
@@ -117,7 +117,6 @@ class App extends React.Component {
 
   async createNewPoll() {
     const newPollText = this.state.newPollText;
-    this.setState({ newPollText: "" });
     try {
       const response = await this.secretjs.instantiate(
         CODE_ID,
@@ -125,14 +124,13 @@ class App extends React.Component {
         uuidv4()
       );
       alert(JSON.stringify(response));
+      this.setState({ newPollText: "" });
     } catch (error) {
       alert(error.message);
     }
   }
 
   async vote(pollAddress, yes) {
-    const newPollText = this.state.newPollText;
-    this.setState({ newPollText: "" });
     try {
       const response = await this.secretjs.execute(pollAddress, {
         Vote: { yes },
@@ -170,26 +168,20 @@ class App extends React.Component {
         <h1>Polls</h1>
         <table>
           <thead>
-            <th>
-              <td>Poll</td>
-              <td>Vote</td>
-            </th>
+            <tr>
+              <th>Poll</th>
+              <th>Vote</th>
+            </tr>
           </thead>
           <tbody>
             {this.state.polls.map((poll, idx) => (
               <tr key={idx}>
                 <td>{poll.poll}</td>
                 <td>
-                  <button
-                    type="button"
-                    onClick={() => this.vote(poll.address, true)}
-                  >
+                  <button onClick={() => this.vote(poll.address, true)}>
                     Yes
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => this.vote(poll.address, false)}
-                  >
+                  <button onClick={() => this.vote(poll.address, false)}>
                     No
                   </button>
                 </td>

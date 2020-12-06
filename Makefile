@@ -12,7 +12,7 @@ alternatively-build-with-docker:
 
 # alias secretcli='docker exec -it secretdev /usr/bin/secretcli'
 start-local-chain: # CTRL+C to stop
-	docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $(shell pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:v1.0.3
+	docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $(shell pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:v1.0.4
 
 store-contract:
 	docker exec -it secretdev secretcli tx compute store /root/code/contract.wasm.gz --from a --gas 10000000 -b block -y
