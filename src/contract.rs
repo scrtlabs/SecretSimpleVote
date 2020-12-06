@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     poll: String,
 }
@@ -25,6 +26,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct HandleMsg {
     yes: bool,
 }
