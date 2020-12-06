@@ -10,6 +10,7 @@ use cosmwasm_std::{
 use cosmwasm_storage::PrefixedStorage;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InitMsg {
     poll: String,
     deadline: Option<u64>,
@@ -35,6 +36,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum HandleMsg {
     Vote { yes: bool },
     Close {},
