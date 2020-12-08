@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from "uuid";
 
 const CODE_ID = 1;
 const CHIAN_ID = "enigma-pub-testnet-3";
+const REST = "http://localhost:1337";
+const RPC = "localhost:26657";
 
 class App extends React.Component {
   constructor(props) {
@@ -23,16 +25,42 @@ class App extends React.Component {
   async componentWillMount() {
     await this.setupKeplr();
 
-    setInterval(async () => {
-      const contracts = await this.secretjs.getContracts(CODE_ID);
-      for (const contract of contracts) {
-        const poll = await this.secretjs.queryContractSmart(contract.address, {
+    const contracts = await this.secretjs.getContracts(CODE_ID);
+    for (const contract of contracts) {
+      const poll = await this.secretjs.queryContractSmart(contract.address, {
+        get_poll: {},
+      });
+      contract.poll = poll;
+    }
+    this.setState({ polls: contracts });
+
+    const ws = new WebSocket(`ws://${RPC}/websocket`);
+
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "subscribe",
+          params: {
+            query: `message.module='compute' AND message.code_id='${CODE_ID}' AND message.action='instantiate'`,
+          },
+          id: "banana", // jsonrpc id
+        })
+      );
+    };
+
+    ws.onmessage = async ({ data }) => {
+      try {
+        const { result } = JSON.parse(data);
+        const address = result.events["message.contract_address"][0];
+        const poll = await this.secretjs.queryContractSmart(address, {
           get_poll: {},
         });
-        contract.poll = poll;
+        this.setState({ polls: this.state.polls.concat({ address, poll }) });
+      } catch (e) {
+        console.error(e.message);
       }
-      this.setState({ polls: contracts });
-    }, 1000);
+    };
   }
 
   async setupKeplr() {
@@ -49,8 +77,8 @@ class App extends React.Component {
     await window.keplr.experimentalSuggestChain({
       chainId: CHIAN_ID,
       chainName: "Local Secret Chain",
-      rpc: "http://localhost:26657",
-      rest: "http://localhost:1337",
+      rpc: `http://${RPC}`,
+      rest: REST,
       bip44: {
         coinType: 529,
       },
@@ -96,7 +124,7 @@ class App extends React.Component {
     this.accounts = await this.keplrOfflineSigner.getAccounts();
 
     this.secretjs = new SigningCosmWasmClient(
-      "http://localhost:1337",
+      REST,
       this.accounts[0].address,
       this.keplrOfflineSigner,
       window.getEnigmaUtils(CHIAN_ID),
