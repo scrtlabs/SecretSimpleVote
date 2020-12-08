@@ -1,12 +1,13 @@
-import "./App.css";
+// Run:
+// `npx create-react-app secret-dapp`
+// `cd secret-dapp`
+// `yarn add secretjs` (or `npm i secretjs`)
+// Then copy the content of this file into `src/App.js`
+
 import React from "react";
 import { SigningCosmWasmClient } from "secretjs";
-import { v4 as uuidv4 } from "uuid";
 
-const CODE_ID = 1;
 const CHIAN_ID = "enigma-pub-testnet-3";
-const REST = "http://localhost:1337";
-const RPC = "localhost:26657";
 
 class App extends React.Component {
   constructor(props) {
@@ -14,58 +15,35 @@ class App extends React.Component {
 
     this.state = {
       keplrReady: false,
+      account: null,
+      createPollText: "",
       polls: [],
-      newPollText: "",
     };
-
-    this.createNewPoll = this.createNewPoll.bind(this);
-    this.vote = this.vote.bind(this);
   }
 
-  async componentWillMount() {
+  async componentDidMount() {
     await this.setupKeplr();
 
-    const contracts = await this.secretjs.getContracts(CODE_ID);
-    for (const contract of contracts) {
-      const poll = await this.secretjs.queryContractSmart(contract.address, {
-        get_poll: {},
-      });
-      contract.poll = poll;
-    }
-    this.setState({ polls: contracts });
+    const account = await this.secretjs.getAccount(this.state.account.address);
+    this.setState({ account });
 
-    const ws = new WebSocket(`ws://${RPC}/websocket`);
-
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          method: "subscribe",
-          params: {
-            query: `message.module='compute' AND message.code_id='${CODE_ID}' AND message.action='instantiate'`,
-          },
-          id: "banana", // jsonrpc id
-        })
-      );
-    };
-
-    ws.onmessage = async ({ data }) => {
-      try {
-        const { result } = JSON.parse(data);
-        const address = result.events["message.contract_address"][0];
-        const poll = await this.secretjs.queryContractSmart(address, {
+    setInterval(async () => {
+      const contracts = await this.secretjs.getContracts(1);
+      for (const c of contracts) {
+        const poll = await this.secretjs.queryContractSmart(c.address, {
           get_poll: {},
         });
-        this.setState({ polls: this.state.polls.concat({ address, poll }) });
-      } catch (e) {
-        console.error(e.message);
+        c.poll = poll;
       }
-    };
+      this.setState({ polls: contracts });
+    }, 1000);
   }
 
   async setupKeplr() {
+    // Define sleep
     const sleep = (ms) => new Promise((accept) => setTimeout(accept, ms));
 
+    // Wait for Keplr to be injected to the page
     while (
       !window.keplr &&
       !window.getOfflineSigner &&
@@ -74,11 +52,24 @@ class App extends React.Component {
       await sleep(10);
     }
 
+    // Use a custom chain with Keplr.
+    // On mainnet we don't need this (`experimentalSuggestChain`).
+    // This works well with `enigmampc/secret-network-sw-dev:v1.0.4`:
+    //     - https://hub.docker.com/r/enigmampc/secret-network-sw-dev
+    //     - Run a local chain: `docker run -it --rm -p 26657:26657 -p 26656:26656 -p 1337:1337 -v $(shell pwd):/root/code --name secretdev enigmampc/secret-network-sw-dev:v1.0.3`
+    //     - `alias secretcli='docker exec -it secretdev secretcli'`
+    //     - Store a contract: `docker exec -it secretdev secretcli tx compute store /root/code/contract.wasm.gz --from a --gas 10000000 -b block -y`
+    // On holodeck, set:
+    //     1. CHIAN_ID = "holodeck-2"
+    //     2. rpc = "ttp://bootstrap.secrettestnet.io:26657"
+    //     3. rest = "https://bootstrap.secrettestnet.io"
+    //     4. chainName = Whatever you like
+    // For more examples, go to: https://github.com/chainapsis/keplr-example/blob/master/src/main.js
     await window.keplr.experimentalSuggestChain({
       chainId: CHIAN_ID,
       chainName: "Local Secret Chain",
-      rpc: `http://${RPC}`,
-      rest: REST,
+      rpc: "http://localhost:26657",
+      rest: "http://localhost:1337",
       bip44: {
         coinType: 529,
       },
@@ -118,21 +109,27 @@ class App extends React.Component {
       features: ["secretwasm"],
     });
 
+    // Enable Keplr.
+    // This pops-up a window for the user to allow keplr access to the webpage.
     await window.keplr.enable(CHIAN_ID);
 
+    // Setup SecrtJS with Keplr's OfflineSigner
+    // This pops-up a window for the user to sign on each tx we sent
     this.keplrOfflineSigner = window.getOfflineSigner(CHIAN_ID);
-    this.accounts = await this.keplrOfflineSigner.getAccounts();
+    const accounts = await this.keplrOfflineSigner.getAccounts();
 
     this.secretjs = new SigningCosmWasmClient(
-      REST,
-      this.accounts[0].address,
+      "http://localhost:1337", // holodeck - https://bootstrap.secrettestnet.io; mainnet - user your LCD/REST provider
+      accounts[0].address,
       this.keplrOfflineSigner,
       window.getEnigmaUtils(CHIAN_ID),
       {
+        // 300k - Max gas units we're willing to use for init
         init: {
           amount: [{ amount: "300000", denom: "uscrt" }],
           gas: "300000",
         },
+        // 300k - Max gas units we're willing to use for exec
         exec: {
           amount: [{ amount: "300000", denom: "uscrt" }],
           gas: "300000",
@@ -140,33 +137,7 @@ class App extends React.Component {
       }
     );
 
-    this.setState({ keplrReady: true });
-  }
-
-  async createNewPoll() {
-    const newPollText = this.state.newPollText;
-    try {
-      const response = await this.secretjs.instantiate(
-        CODE_ID,
-        { poll: newPollText },
-        uuidv4()
-      );
-      alert(JSON.stringify(response));
-      this.setState({ newPollText: "" });
-    } catch (error) {
-      alert(error.message);
-    }
-  }
-
-  async vote(pollAddress, yes) {
-    try {
-      const response = await this.secretjs.execute(pollAddress, {
-        Vote: { yes },
-      });
-      alert(JSON.stringify(response));
-    } catch (error) {
-      alert(error.message);
-    }
+    this.setState({ keplrReady: true, account: accounts[0] });
   }
 
   render() {
@@ -178,45 +149,72 @@ class App extends React.Component {
       );
     }
 
+    let account = <h1>Account: unknown</h1>;
+    if (this.state.account) {
+      account = <h1>Account: {this.state.account.address}</h1>;
+    }
+
+    let balance = <>Balance: 0 SCRT</>;
+    try {
+      balance = (
+        <>
+          Balance:{" "}
+          {new Intl.NumberFormat("en-US", {}).format(
+            +this.state.account.balance[0].amount / 1e6
+          )}{" "}
+          SCRT
+        </>
+      );
+    } catch (e) {}
+
     return (
       <center>
-        <h1>Create Poll</h1>
-        <form>
-          <input
-            name="poll"
-            value={this.state.newPollText}
-            onChange={({ target }) => {
-              this.setState({ newPollText: target.value });
-            }}
-          />
-          <button type="button" onClick={this.createNewPoll}>
-            Submit
-          </button>
-        </form>
-        <h1>Polls</h1>
-        <table>
-          <thead>
-            <tr>
-              <th>Poll</th>
-              <th>Vote</th>
-            </tr>
-          </thead>
-          <tbody>
-            {this.state.polls.map((poll, idx) => (
-              <tr key={idx}>
-                <td>{poll.poll}</td>
-                <td>
-                  <button onClick={() => this.vote(poll.address, true)}>
-                    Yes
-                  </button>
-                  <button onClick={() => this.vote(poll.address, false)}>
-                    No
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {account}
+        {balance}
+        <h1>Create new Poll</h1>
+        <input
+          value={this.state.createPollText}
+          onChange={({ target }) => {
+            this.setState({ createPollText: target.value });
+          }}
+        ></input>
+        <button
+          onClick={async () => {
+            const res = await this.secretjs.instantiate(
+              1,
+              {
+                poll: this.state.createPollText,
+              },
+              this.state.createPollText
+            );
+          }}
+        >
+          Submit
+        </button>
+        <h1>List of Polls</h1>
+        {this.state.polls.map((poll, idx) => (
+          <div key={idx}>
+            <>{poll.poll}</>
+            <button
+              onClick={async () => {
+                const res = await this.secretjs.execute(poll.address, {
+                  vote: { yes: true },
+                });
+              }}
+            >
+              Yes
+            </button>
+            <button
+              onClick={async () => {
+                const res = await this.secretjs.execute(poll.address, {
+                  vote: { yes: false },
+                });
+              }}
+            >
+              No
+            </button>
+          </div>
+        ))}
       </center>
     );
   }
