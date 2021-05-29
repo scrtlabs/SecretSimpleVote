@@ -61,6 +61,9 @@ pub enum QueryMsg {
     GetTally {},
 }
 
+
+
+
 pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryMsg) -> QueryResult {
     match msg {
         QueryMsg::GetPoll {} => {
@@ -82,4 +85,76 @@ fn serialize<T: Serialize + Debug>(value: &T) -> StdResult<Vec<u8>> {
 fn deserialize<'a, T: Deserialize<'a> + Debug>(data: &'a [u8]) -> StdResult<T> {
     bincode2::deserialize(data)
         .map_err(|_err| StdError::generic_err(format!("Failed to serialize object: {:?}", data)))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env};
+    use cosmwasm_std::{coins, from_binary, QueryResponse};
+    use schemars::_serde_json::to_string;
+
+    #[test]
+    fn proper_initialization(){
+        let mut deps= mock_dependencies(20,&[]);
+        let msg= InitMsg{poll:"poll1".to_string()};
+        let env = mock_env("Secret_sender",&coins(100,"SCRT"));
+
+        //Initialization complete
+        let res:InitResponse= init(&mut deps,env.clone(),msg).unwrap();
+        //Checking Initialization
+        assert_eq!(0, res.messages.len() );
+
+        //Checking poll results
+        let query = query(&deps,QueryMsg::GetPoll {}).unwrap();
+        let value:String = from_binary(&query).unwrap();
+        assert_eq!("poll1".to_string(), value );
+
+    }
+
+    #[test]
+    fn get_poll(){
+        let mut deps= mock_dependencies(20,&[]);
+        let msg= InitMsg{poll:"poll1".to_string()};
+        let env = mock_env("Secret_sender",&coins(100,"SCRT"));
+        //Initialization complete
+        let res:InitResponse= init(&mut deps,env.clone(),msg).unwrap();
+
+        //Execution complete
+        let res = handle(&mut deps, env, HandleMsg{yes:true}).unwrap();
+        assert_eq!(0, res.messages.len() );
+
+
+        let query = query(&deps,QueryMsg::GetPoll {}).unwrap();
+        let value:String = from_binary(&query).unwrap();
+        //comparing the poll string
+        assert_eq!("poll1".to_string(), value );
+
+
+    }
+
+    #[test]
+    fn get_tally(){
+        let mut deps= mock_dependencies(20,&[]);
+        let msg= InitMsg{poll:"poll1".to_string()};
+        let env = mock_env("Secret_sender",&coins(100,"SCRT"));
+
+        let res:InitResponse= init(&mut deps,env.clone(),msg).unwrap();
+
+        let res = handle(&mut deps, env, HandleMsg{yes:true}).unwrap();
+        assert_eq!(0, res.messages.len() );
+
+        //Checking poll's tally
+        let query = query(&deps,QueryMsg::GetTally {}).unwrap();
+        let value:Tally = from_binary(&query).unwrap();
+        assert_eq!(1, value.yes );
+        assert_eq!(0,value.no);
+
+
+
+
+    }
+
+
 }
